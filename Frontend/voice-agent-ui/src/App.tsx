@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import Results from './Results'; // Ensure you have created Results.tsx
+import { motion, AnimatePresence } from 'framer-motion';
 
 // Define the shape of a chat message
 interface Message {
@@ -21,10 +22,10 @@ function App() {
   ]);
   
   // New state to hold data for the Results.tsx panel
-  const [sidebarData, setSidebarData] = useState<SidebarData>({
-    type: null,
-    items: []
-  });
+  const [sidebarData, setSidebarData] = useState<{
+      type: 'orders' | 'products' | null, 
+      items: any[] 
+    }>({ type: null, items: [] });
 
   useEffect(() => {
   const clearAIContext = async () => {
@@ -162,21 +163,20 @@ function App() {
         </div>
 
         {/* RIGHT COLUMN: THE DATA PANEL */}
-        <div className="w-full md:w-[450px] h-[635px] bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-          <div className="bg-slate-800/50 p-4 border-b border-slate-700 flex justify-between items-center">
-            <h2 className="text-xs font-bold text-slate-400 tracking-[0.2em] uppercase">Data Stream // Results</h2>
-            {sidebarData.type && (
-              <span className="text-[10px] bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded border border-cyan-500/20 animate-pulse">
-                LIVE_DATA
-              </span>
+        <AnimatePresence>
+            {/* Only render if there is a type and items exist */}
+            {sidebarData.type && sidebarData.items.length > 0 && (
+              <motion.div
+                initial={{ x: 400, opacity: 0 }}   // Start off-screen to the right
+                animate={{ x: 0, opacity: 1 }}     // Slide into view
+                exit={{ x: 400, opacity: 0 }}      // Slide back out when data is cleared
+                transition={{ type: "spring", damping: 25, stiffness: 200 }}
+                className="fixed right-0 top-0 h-full w-[400px] z-50" // Adjust styling as needed
+              >
+                <Results data={sidebarData} />
+              </motion.div>
             )}
-          </div>
-          
-          {/* Injecting the Results Component */}
-          <div className="flex-1 overflow-hidden">
-            <Results data={sidebarData} />
-          </div>
-        </div>
+          </AnimatePresence>
 
       </div>
     </div>

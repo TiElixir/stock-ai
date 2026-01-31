@@ -22,7 +22,8 @@ async def reset_chat():
         return {"status": "success", "message": "Context cleared."}
     except Exception as e:
         return {"status": "error", "message": str(e)}
-        
+
+
 @app.get("/run-agent")
 async def run_agent(background_tasks: BackgroundTasks):
     print("\n⚡ API CALL: Processing Voice Request...")

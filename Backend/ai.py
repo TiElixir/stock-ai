@@ -181,7 +181,7 @@ def check_order_status(order_id: str):
     return res.to_json(orient="records")
 
 def cancel_order(order_id: str):
-    """Cancels an order (If owned by user)."""
+    """Cancels an order (If owned by user) and returns the updated object."""
     if orders_df.empty: return "Order DB unavailable."
     clean_id = str(order_id).replace(" ", "").strip()
     
@@ -195,12 +195,21 @@ def cancel_order(order_id: str):
     idx = matches[0]
     
     current_status = orders_df.at[idx, 'order_status']
+    
+    # Validation: Can we actually cancel it?
     if current_status.lower() in ["delivered", "shipped", "out for delivery", "cancelled"]:
         return f"Cannot cancel order {clean_id}. It is currently '{current_status}'."
     
+    # EXECUTE CANCELLATION
     orders_df.at[idx, 'order_status'] = "Cancelled"
     save_to_disk()
-    return f"Success. Order {clean_id} has been cancelled."
+    
+    # --- CRITICAL CHANGE ---
+    # Instead of returning a string, we return the UPDATED row as JSON.
+    # The 'process_user_input' function will pick this up, send it to React,
+    # and the sidebar will re-render showing the Red Cancelled Box.
+    updated_row = orders_df.iloc[[idx]]
+    return updated_row.to_json(orient="records", date_format='iso')
 
 def initiate_return(order_id: str, reason: str = "ns"):
     """Returns a delivered order (If owned by user)."""
@@ -295,26 +304,33 @@ def process_user_input(user_text):
     try:
         response = chat.send_message(user_text)
         
-        # Initialize our custom data payload
         structured_data = {
             "bot_text": response.text,
             "type": None,
             "items": []
         }
 
-        # Check the last message in chat history for tool outputs
-        # Gemini history: [UserMsg, ModelMsg(call), UserMsg(response), ModelMsg(final text)]
-        for part in chat.history[-2].parts: # Look at the tool response part
+        # Check chat history for tool outputs
+        for part in chat.history[-2].parts: 
             if part.function_response:
                 raw_content = part.function_response.response['result']
                 
-                # Check if it looks like Order data or Product data
-                if "order_id" in raw_content:
-                    structured_data["type"] = "orders"
-                    structured_data["items"] = json.loads(raw_content)
-                elif "product_name" in raw_content:
-                    structured_data["type"] = "products"
-                    structured_data["items"] = json.loads(raw_content)
+                # Convert string result to actual list/object
+                try:
+                    parsed_items = json.loads(raw_content)
+                except:
+                    continue # Not JSON data, skip
+
+                # Identify Data Type
+                if isinstance(parsed_items, list) and len(parsed_items) > 0:
+                    first_item = parsed_items[0]
+                    
+                    if "order_id" in first_item:
+                        structured_data["type"] = "orders"
+                        structured_data["items"] = parsed_items
+                    elif "product_name" in first_item:
+                        structured_data["type"] = "products"
+                        structured_data["items"] = parsed_items
 
         return structured_data
     except Exception as e:
