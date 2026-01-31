@@ -100,7 +100,7 @@ def transcribe(audio_data):
 
 # --- 3. TTS ---
 async def speak(text):
-    print(f"🤖 Agent: {text}")
+    # Removed the print statement from here so it doesn't double-print
     communicate = edge_tts.Communicate(text, "en-US-AriaNeural")
     await communicate.save("response.mp3")
     
@@ -111,6 +111,7 @@ async def speak(text):
         pygame.time.Clock().tick(10)
     pygame.mixer.quit()
 
+# --- MAIN LOOP ---
 # --- MAIN LOOP ---
 async def main_loop():
     while True:
@@ -126,16 +127,19 @@ async def main_loop():
         user_text = transcribe(audio_data)
         print(f"👤 User: {user_text}")
         
-        if len(user_text) < 1:
+        if len(user_text) < 2: # Ignore very short/empty transcriptions
             print("... (Silence detected)")
             continue
 
-        # C. Brain
-        response = process_user_input(user_text)
+        # C. Brain (Get response text first)
+        response_text = process_user_input(user_text)
         
-        # D. Speak
-        await speak(response)
+        # D. IMMEDIATE RESPONSE (API/Print first)
+        # This is where you would trigger an external API call if needed
+        print(f"🤖 Agent Response Text: {response_text}") 
 
+        # E. TTS (Start audio playback after text is handled)
+        await speak(response_text)
 if __name__ == "__main__":
     try:
         asyncio.run(main_loop())

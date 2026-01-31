@@ -28,7 +28,7 @@ genai.configure(api_key=GOOGLE_API_KEY)
 
 # --- 2. AUTHENTICATION (SIMULATED) ---
 print("\n🔒 --- SECURITY LOGIN ---")
-CURRENT_USER_ID = input("Enter Customer ID to emulate (e.g., C0010): ").strip().upper()
+CURRENT_USER_ID = "C0010"
 if not CURRENT_USER_ID:
     CURRENT_USER_ID = "C0010" # Default for testing
 print(f"✅ Logged in as: {CURRENT_USER_ID}\n")
@@ -87,6 +87,13 @@ except Exception as e:
     orders_df = pd.DataFrame()
     searchable_orders = pd.DataFrame()
 
+
+# Assuming your chat object is named 'chat'
+def reset_session():
+    global chat
+    print("🧹 System: Purging chat history...")
+    # This restarts the chat session with an empty history
+    chat = model.start_chat(history=[], enable_automatic_function_calling=True)
 # --- 4. HELPER: SAVE TO DISK ---
 def save_to_disk():
     try:
@@ -218,14 +225,23 @@ def initiate_return(order_id: str, reason: str = "ns"):
     return f"Return initiated for Order {clean_id}."
 
 def get_order_history():
-    """Retrieves full order history FOR THE CURRENT USER ONLY."""
-    if orders_df.empty: return "No orders found."
+    """Retrieves full order history sorted by newest date."""
+    if orders_df.empty: 
+        return "No orders found."
     
-    # PRIVACY FILTER
-    user_orders = orders_df[orders_df['customer_id'] == CURRENT_USER_ID]
+    # 1. Filter by current user
+    user_orders = orders_df[orders_df['customer_id'] == CURRENT_USER_ID].copy()
     
-    if user_orders.empty: return f"No order history found for customer {CURRENT_USER_ID}."
-    return user_orders.to_json(orient="records")
+    if user_orders.empty: 
+        return f"No order history found for customer {CURRENT_USER_ID}."
+
+    user_orders['order_date'] = pd.to_datetime(user_orders['order_date'])
+
+    # 3. Sort by date (ascending=False puts newest at the top)
+    user_orders = user_orders.sort_values(by='order_date', ascending=False)
+
+
+    return user_orders.to_json(orient="records", date_format='iso')
 
 def admin_update_order(order_id: str, new_status: str):
     """God Mode: Forces an order to any status (Bypasses Privacy - For Admin Demo Only)."""
@@ -265,22 +281,44 @@ You are a helpful Voice Support Agent for Customer {CURRENT_USER_ID}.
 4. Use 'check_order_status' for specific ID tracking.
 5. Use 'cancel_order' IF the user explicitly asks to cancel.
 6. Use 'initiate_return' IF the user wants to return a delivered item.
-7. Use 'get_order_history' to see all past orders.
+7. Use 'get_order_history' to see all past orders. Do not recite the order details in text, just say, "Here are your orders".
 8. Use 'admin_update_order' ONLY if user says "Force update" or "Admin mode".
 9. Keep answers SHORT (max 4 sentences) and spoken-style.
 """
 
 # Use Flash for speed
-model = genai.GenerativeModel('gemini-flash-lite-latest', tools=tools, system_instruction=system_instruction)
+model = genai.GenerativeModel('gemini-2.5-flash', tools=tools, system_instruction=system_instruction)
 chat = model.start_chat(enable_automatic_function_calling=True)
 
 # --- 7. INTERFACE ---
-def process_user_input(user_text: str):
+def process_user_input(user_text):
     try:
         response = chat.send_message(user_text)
-        return response.text
+        
+        # Initialize our custom data payload
+        structured_data = {
+            "bot_text": response.text,
+            "type": None,
+            "items": []
+        }
+
+        # Check the last message in chat history for tool outputs
+        # Gemini history: [UserMsg, ModelMsg(call), UserMsg(response), ModelMsg(final text)]
+        for part in chat.history[-2].parts: # Look at the tool response part
+            if part.function_response:
+                raw_content = part.function_response.response['result']
+                
+                # Check if it looks like Order data or Product data
+                if "order_id" in raw_content:
+                    structured_data["type"] = "orders"
+                    structured_data["items"] = json.loads(raw_content)
+                elif "product_name" in raw_content:
+                    structured_data["type"] = "products"
+                    structured_data["items"] = json.loads(raw_content)
+
+        return structured_data
     except Exception as e:
-        return f"AI Processing Error: {str(e)}"
+        return {"bot_text": f"Error: {str(e)}", "type": None, "items": []}
 
 if __name__ == "__main__":
     print(f"\n💬 AI Agent active for user {CURRENT_USER_ID} (Type 'quit' to exit)")
